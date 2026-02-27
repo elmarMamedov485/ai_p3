@@ -109,6 +109,27 @@ class agent:
 
             max_diag_length = max(max_diag_length, len_temp)
 '''
+
+        for pos, key in state.items():
+            if key != side:
+                continue
+            explored = set()
+            len_temp = 0
+            for pos2, key2 in state.items():
+                if key2 != side:
+                    continue
+                if pos2 in explored:
+                    explored.add(pos2)
+                    continue
+                if pos == pos2:
+                    explored.add(pos2)
+                    continue
+                if abs(pos[0] - pos2[0]) == 1 and abs(pos[1] - pos2[1]) == 1 and key == key2:
+                    len_temp += 1
+                    explored.add(pos2)
+                    max_diag_length = max(max_diag_length, len_temp)
+            max_diag_length = max(max_diag_length, len_temp)
+
         print("diag: ", max_diag_length)
         print("row: ", max_row_length)
         print("col: ", max_col_length)
