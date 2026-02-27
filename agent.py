@@ -8,12 +8,115 @@ class agent:
         self.current_state = {}
         self.found_moves = {}
         self.time_limit = 100
-        self.side = side #X or O
+        self.side = side #X/1 or O/0
 
-    def eval(self, state):
-        pass
+    def eval(self, state, side):
+        max_row_length = 0
+        max_col_length = 0
+        max_diag_length = 0
+        row_ind = set([i for (i, j), k in state.items() if k == side])
+        col_ind = set([j for (i, j), k in state.items() if k == side])
 
-    def actions(self, state): #should return position of the next move
+
+        for i in row_ind:
+            len_temp = 0
+            for j in range(1, self.n+1):
+                if (i, j) not in state:
+                    continue
+                if state[(i, j)] == side:
+                    len_temp += 1
+                    max_row_length = max(max_row_length, len_temp)
+                elif state[(i, j)] == abs(side - 1):
+                    len_temp = 0
+            
+            max_row_length = max(max_row_length, len_temp)
+
+        for j in col_ind:
+            len_temp = 0
+            for i in range(1, self.n+1):
+                if (i, j) not in state:
+                    continue
+                if state[(i, j)] == side:
+                    len_temp += 1
+                    max_col_length = max(max_col_length, len_temp)
+                elif state[(i, j)] == abs(side - 1):
+                    len_temp = 0
+            
+            max_col_length = max(max_col_length, len_temp)
+
+        first_row = [(1, i) for i in range(1, self.n)]
+        first_col = [(i, 1) for i in range(1, self.n)]
+        last_col = [(i, self.n) for i in range(1, self.n)]
+
+        #change self.n + 1
+        '''for pos in first_row:
+            len_temp = 0
+            new_pos = (pos[0] + 1, pos[1] + 1)
+            while  new_pos[0] <= self.n and  new_pos[0]<= self.n:
+                if (i, j) not in state:
+                    continue
+                if state[(i, j)] == side:
+                    len_temp += 1
+                elif state[(i, j)] == abs(side - 1):
+                    len_temp = 0
+
+                new_pos += (1,1)
+
+            max_diag_length = max(max_diag_length, len_temp)
+
+        for pos in first_row:
+            len_temp = 0
+            new_pos = (pos[0] - 1, pos[1] - 1)
+            while  new_pos[0] >= 1 and  new_pos[0] >= 1:
+                if (i, j) not in state:
+                    continue
+                if state[(i, j)] == side:
+                    len_temp += 1
+                elif state[(i, j)] == abs(side - 1):
+                    len_temp = 0
+
+                new_pos -= (1,1)
+
+            max_diag_length = max(max_diag_length, len_temp)
+
+        for pos in first_col:
+            len_temp = 0
+            new_pos = (pos[0] + 1, pos[1] + 1)
+            while  new_pos[0] <= self.n and  new_pos[0]<= self.n:
+                if (i, j) not in state:
+                    continue
+                if state[(i, j)] == side:
+                    len_temp += 1
+                elif state[(i, j)] == abs(side - 1):
+                    len_temp = 0
+
+                new_pos += (1,1)
+
+            max_diag_length = max(max_diag_length, len_temp)
+
+        for pos in last_col:
+            len_temp = 0
+            new_pos = (pos[0] - 1, pos[1] - 1)
+            while  new_pos[0] >= 1 and  new_pos[0] >= 1:
+                if (i, j) not in state:
+                    continue
+                if state[(i, j)] == side:
+                    len_temp += 1
+                elif state[(i, j)] == abs(side - 1):
+                    len_temp = 0
+
+                new_pos -= (1,1)
+
+            max_diag_length = max(max_diag_length, len_temp)
+'''
+        print("diag: ", max_diag_length)
+        print("row: ", max_row_length)
+        print("col: ", max_col_length)
+
+        return max_diag_length + max_row_length + max_col_length
+
+
+    def actions(self, state): #should return ordered list of positions of possible next moves
         pass
 
     def min_value(self, state, alpha, beta, depth, max_deth):
