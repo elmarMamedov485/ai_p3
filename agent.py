@@ -21,51 +21,57 @@ class agent:
             return self.eval(state)
         
         v = float("inf")
+        eventual_pos = None
 
         for pos in self.actions(state):
             new_state = deepcopy(state)
             new_state[pos] = self.side
-            v = max(v, self.min_value(state, alpha, beta, depth + 1, max_deth))
+            eventual_pos = pos
+            new_val, _ = self.min_value(state, alpha, beta, depth + 1, max_deth)
+            v = max(v, new_val)
 
             if v <= alpha:
-                return v
+                return v, pos
             
             beta = min(beta, v)
 
-        return v
+        return v, eventual_pos
 
     def max_value(self, state, alpha, beta, depth, max_deth):
         if depth <= max_deth:
             return self.eval(state)
         
         v = float("-inf")
-
+        eventual_pos = None
         for pos in self.actions(state):
             new_state = deepcopy(state)
             new_state[pos] = self.side
-            v = max(v, self.min_value(state, alpha, beta, depth + 1, max_deth))
+            eventual_pos = pos
+            new_val, _ = self.min_value(state, alpha, beta, depth + 1, max_deth)
+            v = max(v, new_val)
 
             if v >= beta:
-                return v
+                return v, pos
             
             alpha = max(alpha, v)
         
-        return v
+        return v, eventual_pos
         
     def alpha_beta(self):
         start = time.time
+        action = None
 
         while(abs(time.time - start) <= self.time_limit):
             max_depth = 0
 
             state = deepcopy(self.current_state)
             val = float("-inf")
-            val = max(val, self.max_value(state, float("-inf"), float("inf"), 0, max_depth))
+            new_val, new_pos = self.max_value(state, float("-inf"), float("inf"), 0, max_depth)
+            
+            if new_val < val:
+                val = new_val
+                action = new_pos
 
             max_depth += 1
-        
 
-
-    
-        
-    
+        return action
