@@ -1,5 +1,6 @@
 import time
 from copy import deepcopy
+from collections import defaultdict
 class agent:
 
     def __init__(self, n, m, side):
@@ -59,30 +60,18 @@ class agent:
         return max_col_length
     
     def find_longest_diag(self, state, side):
-        max_diag_length = 0
-
-        for pos, key in state.items():
-            if key != side:
-                continue
-            explored = set()
-            len_temp = 0
-            for pos2, key2 in state.items():
-                if key2 != side:
-                    continue
-                if pos2 in explored:
-                    explored.add(pos2)
-                    continue
-                if pos == pos2:
-                    explored.add(pos2)
-                    continue
-                if abs(pos[0] - pos2[0]) == 1 and abs(pos[1] - pos2[1]) == 1 and key == key2:
-                    len_temp += 1
-                    explored.add(pos2)
-                    max_diag_length = max(max_diag_length, len_temp)
-            max_diag_length = max(max_diag_length, len_temp)
-
-        return max_diag_length
-
+        main_diag = defaultdict(int)   # r - c
+        anti_diag = defaultdict(int)   # r + c
+    
+        for (r, c), value in state.items():
+            if value == side:
+                main_diag[r - c] += 1
+                anti_diag[r + c] += 1
+    
+        max_main = max(main_diag.values(), default=0)
+        max_anti = max(anti_diag.values(), default=0)
+    
+        return max(max_main, max_anti)
     def eval(self, state, side):
         max_row_length = self.find_longest_row(state,side)
         max_col_length = self.find_longest_column(state, side)
