@@ -12,19 +12,12 @@ class agent:
         self.side = side #X/1 or O/0
 
     def terminal_state(self, state):
-        max_row_length = self.find_longest_row(state, self.side)
-        max_col_length = self.find_longest_column(state, self.side)
-        max_diag_length = self.find_longest_diag(state, self.side)
-        max_row_length_op = self.find_longest_row(state, abs(self.side-1))
-        max_col_length_op = self.find_longest_column(state, abs(self.side-1))
-        max_diag_length_op = self.find_longest_diag(state, abs(self.side-1))
-
-        if max_col_length == self.m or max_row_length == self.m or max_diag_length == self.m:
-            return True
-        elif max_col_length_op == self.m or max_row_length_op == self.m or max_diag_length_op == self.m:
-            return True
-        else:
-            return False
+        for player in [self.side, 1 - self.side]:
+            if (self.find_longest_row(state, player)[0] == self.m or
+            self.find_longest_column(state, player)[0] == self.m or
+            self.find_longest_diag(state, player)[0] == self.m):
+                return True
+        return False
 
     def find_longest_row(self, state, side):
         max_row_length = 0
@@ -32,17 +25,21 @@ class agent:
         max_row_ind = []
         
         for i in row_ind:
+            temp = []
             len_temp = 0
             for j in range(1, self.n+1):
                 if (i, j) not in state:
                     continue
                 if state[(i, j)] == side:
                     len_temp += 1
-                    max_row_length = max(max_row_length, len_temp)
-                    max_row_ind.append((i,j))
+                    temp.append((i,j))
+
+                    if len_temp > max_row_length:
+                        max_row_length = len_temp
+                        max_row_ind = temp.copy()
                 elif state[(i, j)] == abs(side - 1):
                     len_temp = 0
-                    max_row_ind = []
+                    temp = []
             
             max_row_length = max(max_row_length, len_temp)
 
@@ -55,16 +52,20 @@ class agent:
 
         for j in col_ind:
             len_temp = 0
+            temp = []
             for i in range(1, self.n+1):
                 if (i, j) not in state:
                     continue
                 if state[(i, j)] == side:
                     len_temp += 1
-                    max_col_length = max(max_col_length, len_temp)
-                    max_col_ind.append((i,j))
+                    temp.append((i,j))
+
+                    if len_temp > max_col_length:
+                        max_col_length = len_temp
+                        max_col_ind = temp.copy()
                 elif state[(i, j)] == abs(side - 1):
                     len_temp = 0
-                    max_col_ind = []
+                    temp = []
             
             max_col_length = max(max_col_length, len_temp)
 
@@ -101,15 +102,20 @@ class agent:
         return res, path
     
     def eval(self, state, side):
-        max_row_length, _ = self.find_longest_row(state,side)
-        max_col_length, _ = self.find_longest_column(state, side)
-        max_diag_length, _ = self.find_longest_diag(state, side)
+        my = max(
+        self.find_longest_row(state, side)[0],
+        self.find_longest_column(state, side)[0],
+        self.find_longest_diag(state, side)[0]
+        )
 
-        #print("diag: ", max_diag_length)
-        #print("row: ", max_row_length)
-        #print("col: ", max_col_length)
+        opp = max(
+            self.find_longest_row(state, 1-side)[0],
+            self.find_longest_column(state, 1-side)[0],
+            self.find_longest_diag(state, 1-side)[0]
+        )
 
-        return max_diag_length + max_row_length + max_col_length
+        return my - opp
+
 
     def actions(self, state): #should return ordered list of positions of possible next moves
         actions = []
@@ -118,21 +124,22 @@ class agent:
         max_col_len, path_col = self.find_longest_column(state, self.side)
         max_diag_len, path_diag = self.find_longest_diag(state, self.side)
 
-        ord_lengths =sorted({"row": max_row_len, "col": max_col_len, "diag":max_diag_len}.items(), key=lambda x: x[1])
 
-        if len(path_row) != 0 and len(path_col) != 0 and len(path_diag) != 0:
-            for key, _ in ord_lengths:
+        ord_lengths =sorted({"row": max_row_len, "col": max_col_len, "diag":max_diag_len}.items(), key=lambda x: x[1], reverse= True)
+
+        for key, len in ord_lengths:
+                if len == 0: 
+                    continue 
                 new_start =  new_end = None
 
-                
-                    
                 if key == "row":
                     new_start = (path_row[0][0], path_row[0][1]-1)
                     new_end = (path_row[-1][0], path_row[-1][1]+1)
-                elif key == "col" :
+                elif key == "col":
                     new_start = (path_col[0][0]-1, path_col[0][1])
                     new_end = (path_col[-1][0]+1, path_col[-1][1])
-                elif key == "diag" :
+                elif key == "diag":
+                    
                     if path_diag[-1][1] - path_diag[0][1] >= 0:
                         new_start = (path_diag[0][0]-1, path_diag[0][1]-1)
                         new_end = (path_diag[-1][0]+1, path_diag[-1][1]+1)
@@ -140,16 +147,12 @@ class agent:
                         new_start = (path_diag[0][0]-1, path_diag[0][1]+1)
                         new_end = (path_diag[-1][0]+1, path_diag[-1][1]-1)
 
-
-                if new_start[0] in range(self.n + 1) and new_start[1] in range(self.n+1) and new_start not in state and new_start not in actions:
+                
+                if new_start is not None and new_start[0] in range(1,self.n + 1) and new_start[1] in range(1,self.n+1) and new_start not in state and new_start not in actions:
                     actions.append(new_start)
-                if new_end[0] in range(self.n + 1) and new_end[1] in range(self.n+1) and new_end not in state and new_end not in actions:
+                    
+                if new_end is not None and new_end[0] in range(1,self.n + 1) and new_end[1] in range(1,self.n+1) and new_end not in state and new_end not in actions:
                     actions.append(new_end)
-        
-        for i in range(1, self.n+1):
-            for j in range(1, self.n+1):
-                if (i, j) not in state and (i, j) not in actions:
-                    actions.append((i,j))
 
         return actions
 
@@ -162,7 +165,7 @@ class agent:
 
         for pos in self.actions(state):
             new_state = deepcopy(state)
-            new_state[pos] = self.side
+            new_state[pos] = 1 - self.side
             eventual_pos = pos
             new_val, _ = self.max_value(new_state, alpha, beta, depth + 1, max_deth, pos)
             v = min(v, new_val)
@@ -217,9 +220,9 @@ class agent:
     def print_board(self, board):
         symbol = {1: 'X', 0: 'O'}
         print("\n\n")
-        for r in range(self.n):
+        for r in range(1,self.n+1):
             row = []
-            for c in range(self.n):
+            for c in range(1,self.n+1):
                 val = board.get((r, c))
                 row.append(symbol[val] if val in symbol else '.')
             print(" ".join(row))
@@ -227,10 +230,15 @@ class agent:
     def play(self):
         self.print_board(self.current_state)
 
-        while not self.terminal_state(self.current_state):
+        while True: 
             usr_pos = tuple(map(int, input("\nEnter position (x, y): ").split(',')))
 
-            self.current_state[usr_pos] = abs(self.side - 1)
+            if usr_pos in self.current_state:
+                while True:
+                    usr_pos = tuple(map(int, input("\nEnter position (x, y): ").split(',')))
+                    if usr_pos not in self.current_state:
+                        break
+            self.current_state[usr_pos] = self.side
 
             print("User move: ")
             self.print_board(self.current_state)
@@ -238,7 +246,18 @@ class agent:
             action = self.alpha_beta()
             print(action)
 
-            self.current_state[action] = self.side
+            if self.terminal_state(self.current_state):
+                print(self.side, " won!")
+                break
 
-            print("Bot move: ")
+            self.current_state[action] = abs(self.side - 1)
+
+            print("Agent move: ")
             self.print_board(self.current_state)
+
+            if self.terminal_state(self.current_state):
+                print(abs(self.side - 1), " won!")
+                break
+
+
+#To do: terminal state check, action ordering based on the opponent move first
