@@ -8,7 +8,7 @@ class agent:
         self.m = m
         self.current_state = {}
         self.found_moves = {}
-        self.time_limit = 10
+        self.time_limit = 3
         self.side = side #X/1 or O/0
 
     def terminal_state(self, state):
@@ -114,8 +114,12 @@ class agent:
             self.find_longest_diag(state, 1-side)[0]
         )
 
+        if opp == self.m - 1:
+            return -10000
+        if my == self.m - 1:
+            return 10000
+        
         return my - opp
-
 
     def actions(self, state): #should return ordered list of positions of possible next moves
         actions = []
@@ -123,9 +127,13 @@ class agent:
         max_row_len, path_row = self.find_longest_row(state, self.side)
         max_col_len, path_col = self.find_longest_column(state, self.side)
         max_diag_len, path_diag = self.find_longest_diag(state, self.side)
+        max_row_len_op, path_row_op = self.find_longest_row(state, 1 - self.side)
+        max_col_len_op, path_col_op = self.find_longest_column(state, 1 - self.side)
+        max_diag_len_op, path_diag_op = self.find_longest_diag(state, 1 - self.side)
 
 
         ord_lengths =sorted({"row": max_row_len, "col": max_col_len, "diag":max_diag_len}.items(), key=lambda x: x[1], reverse= True)
+        ord_lengths_op =sorted({"row": max_row_len_op, "col": max_col_len_op, "diag":max_diag_len_op}.items(), key=lambda x: x[1], reverse= True)
 
         for key, len in ord_lengths:
                 if len == 0: 
@@ -154,17 +162,43 @@ class agent:
                 if new_end is not None and new_end[0] in range(1,self.n + 1) and new_end[1] in range(1,self.n+1) and new_end not in state and new_end not in actions:
                     actions.append(new_end)
 
+        for key, len in ord_lengths_op:
+                if len == 0: 
+                    continue 
+                new_start =  new_end = None
+
+                if key == "row":
+                    new_start = (path_row_op[0][0], path_row_op[0][1]-1)
+                    new_end = (path_row_op[-1][0], path_row_op[-1][1]+1)
+                elif key == "col":
+                    new_start = (path_col_op[0][0]-1, path_col_op[0][1])
+                    new_end = (path_col_op[-1][0]+1, path_col_op[-1][1])
+                elif key == "diag":
+                    
+                    if path_diag_op[-1][1] - path_diag_op[0][1] >= 0:
+                        new_start = (path_diag_op[0][0]-1, path_diag_op[0][1]-1)
+                        new_end = (path_diag_op[-1][0]+1, path_diag_op[-1][1]+1)
+                    else:
+                        new_start = (path_diag_op[0][0]-1, path_diag_op[0][1]+1)
+                        new_end = (path_diag_op[-1][0]+1, path_diag_op[-1][1]-1)
+
+                
+                if new_start is not None and new_start[0] in range(1,self.n + 1) and new_start[1] in range(1,self.n+1) and new_start not in state and new_start not in actions:
+                    actions.append(new_start)
+                    
+                if new_end is not None and new_end[0] in range(1,self.n + 1) and new_end[1] in range(1,self.n+1) and new_end not in state and new_end not in actions:
+                    actions.append(new_end)
         return actions
 
     def min_value(self, state, alpha, beta, depth, max_deth, pos = None):
         if depth >= max_deth or self.terminal_state(state):
-            return self.eval(state, self.side), (pos if pos is not None else float("inf")) 
+            return self.eval(state, 1 - self.side), (pos if pos is not None else float("inf")) 
         
         v = float("inf")
         eventual_pos = None
 
         for pos in self.actions(state):
-            new_state = deepcopy(state)
+            new_state = state.copy()
             new_state[pos] = 1 - self.side
             eventual_pos = pos
             new_val, _ = self.max_value(new_state, alpha, beta, depth + 1, max_deth, pos)
@@ -185,7 +219,7 @@ class agent:
         eventual_pos = None
         for pos in self.actions(state):
             
-            new_state = deepcopy(state)
+            new_state = state.copy()
             new_state[pos] = self.side
             eventual_pos = pos
             new_val, _ = self.min_value(new_state, alpha, beta, depth + 1, max_deth, pos)
@@ -238,26 +272,29 @@ class agent:
                     usr_pos = tuple(map(int, input("\nEnter position (x, y): ").split(',')))
                     if usr_pos not in self.current_state:
                         break
-            self.current_state[usr_pos] = self.side
+            self.current_state[usr_pos] = 1 - self.side
 
             print("User move: ")
             self.print_board(self.current_state)
 
+            if self.terminal_state(self.current_state):
+                print(1 - self.side, " won!")
+                break
+
             action = self.alpha_beta()
             print(action)
 
-            if self.terminal_state(self.current_state):
-                print(self.side, " won!")
-                break
-
-            self.current_state[action] = abs(self.side - 1)
+            self.current_state[action] = self.side
 
             print("Agent move: ")
             self.print_board(self.current_state)
 
             if self.terminal_state(self.current_state):
-                print(abs(self.side - 1), " won!")
+                print(self.side, " won!")
                 break
 
 
-#To do: terminal state check, action ordering based on the opponent move first
+#To do:  action ordering based on the opponent move first
+#X X O
+#O O X
+#X . . gives error because actions after that move are 0
