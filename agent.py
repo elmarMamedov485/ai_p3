@@ -31,6 +31,9 @@ class agent:
                 if (i, j) not in state:
                     continue
                 if state[(i, j)] == side:
+                    if len(temp) > 0 and (abs(i - temp[-1][0]) != 1):
+                        len_temp = 0
+                        temp = []
                     len_temp += 1
                     temp.append((i,j))
 
@@ -57,6 +60,9 @@ class agent:
                 if (i, j) not in state:
                     continue
                 if state[(i, j)] == side:
+                    if len(temp) > 0 and (abs(i - temp[-1][0]) != 1):
+                        len_temp = 0
+                        temp = []
                     len_temp += 1
                     temp.append((i,j))
 
@@ -77,6 +83,7 @@ class agent:
         diag_to_ind = {}
         for (r, c), value in state.items():
             if value == side:
+                
                 main_diag[r - c] += 1
                 anti_diag[r + c] += 1
 
@@ -86,6 +93,11 @@ class agent:
                     diag_to_ind[r+c] = list()
                 diag_to_ind[r - c].append((r,c))
                 diag_to_ind[r + c].append((r,c))
+            else:
+                main_diag[r - c] = 0
+                anti_diag[r + c] = 0
+                diag_to_ind[r - c] = list()
+                diag_to_ind[r + c] = list()
     
         max_key_main = max(main_diag, key=main_diag.get, default= 0)
         max_key_anti = max(anti_diag, key=anti_diag.get, default= 0)
@@ -233,11 +245,47 @@ class agent:
         
         return v, eventual_pos
  
+    def is_win(self, state):
+        temp = state.copy()
+
+        for i in range(1, self.n + 1):
+            for j in range(1, self.n +1):
+                if (i, j) not in temp:
+                    temp[(i,j)] = self.side
+                    if self.terminal_state(temp):
+                        return (i,j)
+                    del temp[(i,j)]
+        return None
+
+    def is_break(self, state):
+        temp = state.copy()
+
+        for i in range(1, self.n + 1):
+            for j in range(1, self.n +1):
+                if (i, j) not in temp:
+                    temp[(i,j)] = 1 - self.side
+                    if self.terminal_state(temp):
+                        return (i,j)
+                    del temp[(i,j)]
+                    
+        return None
+    
     def alpha_beta(self):
         start = time.time()
         action = None
         max_depth = 0
 
+        win_pos = self.is_win(self.current_state)
+        break_pos = self.is_break(self.current_state)
+
+        if win_pos is not None:
+            return win_pos
+        elif break_pos is not None:
+            return break_pos
+        
+        if len(self.current_state) == self.n * self.n - 1:
+            return None
+        
         while(abs(time.time() - start) <= self.time_limit):
             state = deepcopy(self.current_state)
             val = float("-inf")
@@ -253,13 +301,14 @@ class agent:
     
     def print_board(self, board):
         symbol = {1: 'X', 0: 'O'}
-        print("\n\n")
+        print("\n")
         for r in range(1,self.n+1):
             row = []
             for c in range(1,self.n+1):
                 val = board.get((r, c))
                 row.append(symbol[val] if val in symbol else '.')
             print(" ".join(row))
+        print("\n")
 
     def play(self):
         self.print_board(self.current_state)
@@ -277,12 +326,18 @@ class agent:
             print("User move: ")
             self.print_board(self.current_state)
 
-            if self.terminal_state(self.current_state):
-                print(1 - self.side, " won!")
+            if self.terminal_state(self.current_state)  :
+                print("\nUser won!")
+                break
+            elif len(self.current_state) == self.n * self.n:
+                print("\nDraw")
                 break
 
             action = self.alpha_beta()
-            print(action)
+
+            if action is None:
+                print("\nDraw")
+                break
 
             self.current_state[action] = self.side
 
@@ -290,11 +345,11 @@ class agent:
             self.print_board(self.current_state)
 
             if self.terminal_state(self.current_state):
-                print(self.side, " won!")
+                print("\nAgent won!")
+                break
+            elif len(self.current_state) == self.n * self.n:
+                print("\nDraw")
                 break
 
 
-#To do:  action ordering based on the opponent move first
-#X X O
-#O O X
-#X . . gives error because actions after that move are 0
+#To do:  the longest diag, row and column are false in the following situation X . X X for m = 3
