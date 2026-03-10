@@ -360,4 +360,3 @@ class agent:
                 break
 
 
-#To do:  the longest diag, row and column are false in the following situation X . X X for m = 3
