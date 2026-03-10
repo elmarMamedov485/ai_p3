@@ -31,7 +31,7 @@ class agent:
                 if (i, j) not in state:
                     continue
                 if state[(i, j)] == side:
-                    if len(temp) > 0 and (abs(i - temp[-1][0]) != 1):
+                    if len(temp) > 0 and (abs(j - temp[-1][1]) != 1):
                         len_temp = 0
                         temp = []
                     len_temp += 1
@@ -83,14 +83,22 @@ class agent:
         diag_to_ind = {}
         for (r, c), value in state.items():
             if value == side:
-                
-                main_diag[r - c] += 1
-                anti_diag[r + c] += 1
-
                 if r-c not in diag_to_ind:
                     diag_to_ind[r-c] = list()
                 if r+c not in diag_to_ind:
                     diag_to_ind[r+c] = list()
+
+                if len(diag_to_ind[r-c]) > 0 and (abs(r - diag_to_ind[r - c][-1][0]) != 1 and abs(c - diag_to_ind[r - c][-1][1]) != 1):
+                     main_diag[r - c] = 0
+                     diag_to_ind[r - c] = list()
+                if len(diag_to_ind[r+c]) > 0 and (abs(r - diag_to_ind[r + c][-1][0]) != 1 and abs(c - diag_to_ind[r + c][-1][1]) != 1):
+                    main_diag[r + c] = 0
+                    diag_to_ind[r + c] = list()
+                    
+                main_diag[r - c] += 1
+                anti_diag[r + c] += 1
+
+                
                 diag_to_ind[r - c].append((r,c))
                 diag_to_ind[r + c].append((r,c))
             else:
