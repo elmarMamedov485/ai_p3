@@ -8,7 +8,7 @@ class agent:
         self.m = m
         self.current_state = {}
         self.found_moves = {}
-        self.time_limit = 3
+        self.time_limit = 10
         self.side = side #X/1 or O/0
 
     def terminal_state(self, state):
@@ -40,9 +40,7 @@ class agent:
                     if len_temp > max_row_length:
                         max_row_length = len_temp
                         max_row_ind = temp.copy()
-                elif state[(i, j)] == abs(side - 1):
-                    len_temp = 0
-                    temp = []
+                
             
             max_row_length = max(max_row_length, len_temp)
 
@@ -69,9 +67,7 @@ class agent:
                     if len_temp > max_col_length:
                         max_col_length = len_temp
                         max_col_ind = temp.copy()
-                elif state[(i, j)] == abs(side - 1):
-                    len_temp = 0
-                    temp = []
+                
             
             max_col_length = max(max_col_length, len_temp)
 
@@ -101,11 +97,7 @@ class agent:
                 
                 diag_to_ind[r - c].append((r,c))
                 diag_to_ind[r + c].append((r,c))
-            else:
-                main_diag[r - c] = 0
-                anti_diag[r + c] = 0
-                diag_to_ind[r - c] = list()
-                diag_to_ind[r + c] = list()
+            
     
         max_key_main = max(main_diag, key=main_diag.get, default= 0)
         max_key_anti = max(anti_diag, key=anti_diag.get, default= 0)
@@ -141,7 +133,7 @@ class agent:
         
         return my - opp
 
-    def actions(self, state): #should return ordered list of positions of possible next moves
+    def actions(self, state): 
         actions = []
 
         max_row_len, path_row = self.find_longest_row(state, self.side)
@@ -183,6 +175,7 @@ class agent:
                     actions.append(new_end)
 
         for key, len in ord_lengths_op:
+                
                 if len == 0: 
                     continue 
                 new_start =  new_end = None
@@ -194,7 +187,7 @@ class agent:
                     new_start = (path_col_op[0][0]-1, path_col_op[0][1])
                     new_end = (path_col_op[-1][0]+1, path_col_op[-1][1])
                 elif key == "diag":
-                    
+                
                     if path_diag_op[-1][1] - path_diag_op[0][1] >= 0:
                         new_start = (path_diag_op[0][0]-1, path_diag_op[0][1]-1)
                         new_end = (path_diag_op[-1][0]+1, path_diag_op[-1][1]+1)
