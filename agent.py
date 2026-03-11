@@ -166,7 +166,7 @@ class agent:
                      diag_to_ind[r - c] = list()
                 # Reset anti-diagonal streak if current cell is not adjacent to the previous one
                 if len(diag_to_ind[r+c]) > 0 and (abs(r - diag_to_ind[r + c][-1][0]) != 1 and abs(c - diag_to_ind[r + c][-1][1]) != 1):
-                    main_diag[r + c] = 0
+                    anti_diag[r + c] = 0
                     diag_to_ind[r + c] = list()
                     
                 main_diag[r - c] += 1
