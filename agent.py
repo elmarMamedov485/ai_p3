@@ -4,7 +4,7 @@ from collections import defaultdict
 
 class agent:
     """
-    An AI agent that plays an m-in-a-row game on an n x n board (a generalized Tic-Tac-Toe).
+    An agent that plays an m-in-a-row game on an n x n board (a generalized Tic-Tac-Toe).
     Uses iterative-deepening alpha-beta minimax search to determine the best move.
 
     Players are represented as integers:
@@ -28,7 +28,7 @@ class agent:
         self.m = m
         self.current_state = {}   # Active board state: {(row, col): player_int}
         self.found_moves = {}     # Reserved for future move caching (currently unused)
-        self.time_limit = 10      # Max seconds allowed for alpha-beta search per turn
+        self.time_limit = 1      # Max seconds allowed for alpha-beta search per turn
         self.side = side          # X/1 or O/0
 
     def terminal_state(self, state):
@@ -72,7 +72,7 @@ class agent:
         for i in row_ind:
             temp = []       # Cells in the current consecutive streak
             len_temp = 0    # Length of the current streak
-            for j in range(1, self.n+1):
+            for j in range(self.n):
                 if (i, j) not in state:
                     continue
                 if state[(i, j)] == side:
@@ -112,7 +112,7 @@ class agent:
         for j in col_ind:
             len_temp = 0
             temp = []
-            for i in range(1, self.n+1):
+            for i in range(self.n):
                 if (i, j) not in state:
                     continue
                 if state[(i, j)] == side:
@@ -248,7 +248,7 @@ class agent:
         Returns:
             list: Ordered list of (row, col) candidate move positions.
         """
-        actions = []
+        actions_list = []
 
         # Measure the agent's longest streaks and their cell paths in each direction
         max_row_len, path_row = self.find_longest_row(state, self.side)
@@ -264,8 +264,8 @@ class agent:
         ord_lengths_op =sorted({"row": max_row_len_op, "col": max_col_len_op, "diag":max_diag_len_op}.items(), key=lambda x: x[1], reverse= True)
 
         # --- Agent's offensive extension moves ---
-        for key, len in ord_lengths:
-                if len == 0: 
+        for key, streak_len in ord_lengths:
+                if streak_len == 0: 
                     continue   # No pieces placed yet in this direction; skip
                 new_start =  new_end = None
 
@@ -289,16 +289,16 @@ class agent:
                         new_end = (path_diag[-1][0]+1, path_diag[-1][1]-1)
 
                 # Only add a candidate if it is within the board and not already occupied
-                if new_start is not None and new_start[0] in range(1,self.n + 1) and new_start[1] in range(1,self.n+1) and new_start not in state and new_start not in actions:
-                    actions.append(new_start)
+                if new_start is not None and new_start[0] in range(self.n) and new_start[1] in range(self.n) and new_start not in state and new_start not in actions_list:
+                    actions_list.append(new_start)
                     
-                if new_end is not None and new_end[0] in range(1,self.n + 1) and new_end[1] in range(1,self.n+1) and new_end not in state and new_end not in actions:
-                    actions.append(new_end)
+                if new_end is not None and new_end[0] in range(self.n) and new_end[1] in range(self.n) and new_end not in state and new_end not in actions_list:
+                    actions_list.append(new_end)
 
         # --- Opponent's defensive blocking moves (same logic, applied to opponent's streaks) ---
-        for key, len in ord_lengths_op:
+        for key, streak_len in ord_lengths_op:
                 
-                if len == 0: 
+                if streak_len == 0: 
                     continue   # Opponent has no pieces in this direction; skip
                 new_start =  new_end = None
 
@@ -317,12 +317,24 @@ class agent:
                         new_start = (path_diag_op[0][0]-1, path_diag_op[0][1]+1)
                         new_end = (path_diag_op[-1][0]+1, path_diag_op[-1][1]-1)
 
-                if new_start is not None and new_start[0] in range(1,self.n + 1) and new_start[1] in range(1,self.n+1) and new_start not in state and new_start not in actions:
-                    actions.append(new_start)
+                if new_start is not None and new_start[0] in range(self.n) and new_start[1] in range(self.n) and new_start not in state and new_start not in actions_list:
+                    actions_list.append(new_start)
                     
-                if new_end is not None and new_end[0] in range(1,self.n + 1) and new_end[1] in range(1,self.n+1) and new_end not in state and new_end not in actions:
-                    actions.append(new_end)
-        return actions
+                if new_end is not None and new_end[0] in range(self.n) and new_end[1] in range(self.n) and new_end not in state and new_end not in actions_list:
+                    actions_list.append(new_end)
+        
+        if len(actions_list) > 0:
+            return actions_list
+        for (r,c) in state.keys():
+            for dr in [-1,0,1]:
+                for dc in [-1,0,1]:
+                    nr = r + dr
+                    nc = c + dc
+
+                    if nr in range(self.n) and nc in range(self.n):
+                        if (nr,nc) not in state and (nr, nc) not in actions_list:
+                            actions_list.append((nr,nc))
+        return actions_list
 
     def min_value(self, state, alpha, beta, depth, max_deth, pos = None):
         """
@@ -420,8 +432,8 @@ class agent:
         """
         temp = state.copy()
 
-        for i in range(1, self.n + 1):
-            for j in range(1, self.n +1):
+        for i in range(self.n):
+            for j in range(self.n):
                 if (i, j) not in temp:
                     temp[(i,j)] = self.side
                     if self.terminal_state(temp):
@@ -445,8 +457,8 @@ class agent:
         """
         temp = state.copy()
 
-        for i in range(1, self.n + 1):
-            for j in range(1, self.n +1):
+        for i in range(self.n):
+            for j in range(self.n):
                 if (i, j) not in temp:
                     temp[(i,j)] = 1 - self.side
                     if self.terminal_state(temp):
@@ -473,6 +485,7 @@ class agent:
         start = time.time()
         action = None
         max_depth = 0
+        val = float("-inf")
 
         # Shortcut 1: play the immediate winning move if one exists
         win_pos = self.is_win(self.current_state)
@@ -491,7 +504,7 @@ class agent:
         # Iterative deepening: keep increasing depth until the time limit is hit
         while(abs(time.time() - start) <= self.time_limit):
             state = deepcopy(self.current_state)
-            val = float("-inf")
+            
             new_val, new_pos = self.max_value(state, float("-inf"), float("inf"), 0, max_depth)
             
             if new_val > val:
@@ -513,9 +526,9 @@ class agent:
         """
         symbol = {1: 'X', 0: 'O'}
         print("\n")
-        for r in range(1,self.n+1):
+        for r in range(self.n):
             row = []
-            for c in range(1,self.n+1):
+            for c in range(self.n):
                 val = board.get((r, c))
                 row.append(symbol[val] if val in symbol else '.')
             print(" ".join(row))
