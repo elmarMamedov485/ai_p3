@@ -325,6 +325,8 @@ class agent:
         
         if len(actions_list) > 0:
             return actions_list
+        
+        #in the case when no actions are found generate any action
         for (r,c) in state.keys():
             for dr in [-1,0,1]:
                 for dc in [-1,0,1]:
