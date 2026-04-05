@@ -138,14 +138,19 @@ class TicTacToeMatchRunner:
 
         while True:
             details = self.client.get_game_details(self.game_id)
+            board_map = self.client.get_board_map(self.game_id)
+            move_count = int(self._detail(details, "moves", default=0))
+            moves = self.client.get_moves(self.game_id, count=move_count) if move_count > 0 else []
+            bot, my_symbol = self._build_agent(details, board_map, moves)
 
             if self._game_is_over(details):
                 self._print_game_summary(details)
                 return
 
-            board_map = self.client.get_board_map(self.game_id)
-            move_count = int(self._detail(details, "moves", default=0))
-            moves = self.client.get_moves(self.game_id, count=move_count) if move_count > 0 else []
+            if bot.terminal_state(bot.current_state):
+                self._print_local_terminal_summary(bot)
+                return
+
             turn_team_id = int(self._detail(details, "turnTeamId", "turnteamid"))
 
             if turn_team_id != self.team_id:
@@ -158,11 +163,6 @@ class TicTacToeMatchRunner:
                 continue
 
             printed_waiting = False
-            bot, my_symbol = self._build_agent(details, board_map, moves)
-
-            if bot.terminal_state(bot.current_state):
-                self._print_local_terminal_summary(bot)
-                return
 
             if not bot.current_state:
                 chosen_move = self._default_opening_move(bot.n)
