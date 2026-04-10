@@ -44,6 +44,7 @@ class agent:
         # Keep the move list small enough for deeper search on larger boards.
         self.max_branching = 18
         self.last_search_info = {}
+        self.transposition_table = {}
 
     def opponent(self, side):
         """Return the other player's integer label."""
@@ -56,6 +57,10 @@ class agent:
     def board_full(self, state):
         """Return True when no empty cells remain."""
         return len(state) >= self.n * self.n
+
+    def _state_key(self, state):
+        """Build a hashable key for a sparse board state."""
+        return tuple(sorted(state.items()))
 
     def _check_time(self):
         """Stop the current search branch if the move timer has expired."""
@@ -201,6 +206,34 @@ class agent:
             return -12
         return -((10 ** opp) * max(1, open_ends))
 
+    def _window_threat_info(self, state, cells):
+        """
+        Extract simple threat features from one length-m window.
+
+        Returns:
+            tuple[str | None, int, int]: (owner, stone_count, open_ends)
+            owner is "self", "opp", or None.
+        """
+        mine = 0
+        opp = 0
+
+        for row, col in cells:
+            value = state.get((row, col))
+            if value == self.side:
+                mine += 1
+            elif value == self.opponent(self.side):
+                opp += 1
+
+        if mine and opp:
+            return None, 0, 0
+        if mine == 0 and opp == 0:
+            return None, 0, 0
+
+        open_ends = self._open_ends(state, cells)
+        if mine:
+            return "self", mine, open_ends
+        return "opp", opp, open_ends
+
     def _center_score(self, state):
         """Give a small bonus for occupying the central area of the board."""
         middle = (self.n + 1) / 2
@@ -235,6 +268,11 @@ class agent:
             return 0
 
         score = self._center_score(state)
+        my_open_wins = 0
+        opp_open_wins = 0
+        my_open_builds = 0
+        opp_open_builds = 0
+
         for row in range(1, self.n + 1):
             for col in range(1, self.n + 1):
                 for dr, dc in self.directions:
@@ -242,6 +280,32 @@ class agent:
                     if cells is None:
                         continue
                     score += self._window_score(state, cells)
+                    owner, count, open_ends = self._window_threat_info(state, cells)
+                    if owner == "self":
+                        if count == self.m - 1 and open_ends == 2:
+                            my_open_wins += 1
+                        elif count == self.m - 2 and open_ends == 2:
+                            my_open_builds += 1
+                    elif owner == "opp":
+                        if count == self.m - 1 and open_ends == 2:
+                            opp_open_wins += 1
+                        elif count == self.m - 2 and open_ends == 2:
+                            opp_open_builds += 1
+
+        if my_open_wins >= 2:
+            score += 350000
+        elif my_open_wins == 1:
+            score += 60000
+
+        if opp_open_wins >= 2:
+            score -= 420000
+        elif opp_open_wins == 1:
+            score -= 80000
+
+        if my_open_builds >= 2:
+            score += 25000
+        if opp_open_builds >= 2:
+            score -= 32000
 
         return score
 
@@ -435,17 +499,27 @@ class agent:
         """
         self._check_time()
         self.last_search_info["nodes"] += 1
+        table_key = (self._state_key(state), turn_side, depth)
+        cached = self.transposition_table.get(table_key)
+        if cached is not None:
+            self.last_search_info["tt_hits"] += 1
+            return cached
 
         winner = self.winner(state)
         if winner is not None or depth == 0 or self.board_full(state):
             self.last_search_info["evals"] += 1
-            return self.eval(state), None
+            result = (self.eval(state), None)
+            self.transposition_table[table_key] = result
+            return result
 
         moves = self.actions(state, turn_side)
         if not moves:
-            return self.eval(state), None
+            result = (self.eval(state), None)
+            self.transposition_table[table_key] = result
+            return result
 
         best_move = moves[0]
+        pruned = False
 
         if turn_side == self.side:
             value = float("-inf")
@@ -465,8 +539,12 @@ class agent:
                 alpha = max(alpha, value)
                 if alpha >= beta:
                     self.last_search_info["cutoffs"] += 1
+                    pruned = True
                     break
-            return value, best_move
+            result = (value, best_move)
+            if not pruned:
+                self.transposition_table[table_key] = result
+            return result
 
         value = float("inf")
         for move in moves:
@@ -485,8 +563,12 @@ class agent:
             beta = min(beta, value)
             if alpha >= beta:
                 self.last_search_info["cutoffs"] += 1
+                pruned = True
                 break
-        return value, best_move
+        result = (value, best_move)
+        if not pruned:
+            self.transposition_table[table_key] = result
+        return result
 
     def alpha_beta(self):
         """
@@ -504,6 +586,7 @@ class agent:
             "nodes": 0,
             "evals": 0,
             "cutoffs": 0,
+            "tt_hits": 0,
             "completed_depth": 0,
             "elapsed": 0.0,
             "move": None,
@@ -511,6 +594,7 @@ class agent:
             "timed_out": False,
             "candidate_count": 0,
         }
+        self.transposition_table = {}
 
         if self.board_full(self.current_state):
             self.last_search_info["elapsed"] = time.time() - start_time
