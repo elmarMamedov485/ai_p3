@@ -43,8 +43,15 @@ class agent:
         self.directions = ((0, 1), (1, 0), (1, 1), (1, -1))
         # Keep the move list small enough for deeper search on larger boards.
         self.max_branching = 18
+        self.early_branching = 34
+        self.mid_branching = 26
+        self.quiescence_extensions = 1
+        self.threat_search_depth = 3
+        self.threat_search_width = 14
+        self.version = "offensive-threat-space-v5-safe-forcing"
         self.last_search_info = {}
         self.transposition_table = {}
+        self.threat_table = {}
 
     def opponent(self, side):
         """Return the other player's integer label."""
@@ -246,7 +253,9 @@ class agent:
             else:
                 score -= bonus
 
-        return int(score)
+        phase = len(state) / (self.n * self.n)
+        multiplier = max(0.25, 1 - 3 * phase)
+        return int(score * multiplier)
 
     def eval(self, state):
         """
@@ -355,6 +364,27 @@ class agent:
             return list(candidates)
         return self._all_empty_cells(state)
 
+    def _branch_limit(self, state):
+        """
+        Use a wider beam early and a tighter one later.
+
+        On large boards the opening and early midgame need more freedom. Later
+        positions are usually tactical enough that a smaller ordered list works
+        better.
+        """
+        occupied = len(state)
+        if self.n >= 10:
+            if occupied <= self.n:
+                return self.early_branching
+            if occupied <= 2 * self.n:
+                return self.mid_branching
+            if occupied <= 3 * self.n:
+                return max(self.max_branching, 22)
+        elif occupied <= self.n:
+            return max(self.max_branching, 24)
+
+        return self.max_branching
+
     def _count_neighbors(self, state, row, col, side=None, radius=1):
         """Count nearby occupied cells, optionally filtered by side."""
         count = 0
@@ -401,6 +431,330 @@ class agent:
 
         return length, open_ends
 
+    def _windows_through_move(self, move, dr, dc):
+        """Return all length-m windows in one direction that contain move."""
+        row, col = move
+        windows = []
+
+        for offset in range(self.m):
+            start_row = row - offset * dr
+            start_col = col - offset * dc
+            cells = self._segment_cells(start_row, start_col, dr, dc)
+            if cells is not None and move in cells:
+                windows.append(cells)
+
+        return windows
+
+    def _threat_cells_after_move(self, state, move, side):
+        """
+        Find next-turn winning cells created by a hypothetical move.
+
+        A returned cell means that after playing move, side would be able to
+        win on the next turn by playing that cell.
+        """
+        if move in state:
+            return set()
+
+        temp = state.copy()
+        temp[move] = side
+        if self.winner(temp) == side:
+            return {move}
+
+        threats = set()
+        opponent = self.opponent(side)
+
+        for dr, dc in self.directions:
+            for cells in self._windows_through_move(move, dr, dc):
+                side_count = 0
+                blocked = False
+                empties = []
+
+                for cell in cells:
+                    value = temp.get(cell)
+                    if value == side:
+                        side_count += 1
+                    elif value == opponent:
+                        blocked = True
+                        break
+                    else:
+                        empties.append(cell)
+
+                if not blocked and side_count == self.m - 1 and len(empties) == 1:
+                    threats.add(empties[0])
+
+        return threats
+
+    def _build_threat_count_after_move(self, state, move, side):
+        """
+        Count strong non-immediate threats created by a hypothetical move.
+
+        This looks for open windows with m-2 stones. They are not winning next
+        turn yet, but several of them together are useful pressure.
+        """
+        if move in state:
+            return 0
+
+        temp = state.copy()
+        temp[move] = side
+        opponent = self.opponent(side)
+        count = 0
+
+        for dr, dc in self.directions:
+            for cells in self._windows_through_move(move, dr, dc):
+                side_count = 0
+                blocked = False
+                empties = []
+
+                for cell in cells:
+                    value = temp.get(cell)
+                    if value == side:
+                        side_count += 1
+                    elif value == opponent:
+                        blocked = True
+                        break
+                    else:
+                        empties.append(cell)
+
+                if blocked or side_count != self.m - 2 or len(empties) != 2:
+                    continue
+
+                if self._open_ends(temp, cells) > 0:
+                    count += 1
+
+        return count
+
+    def _winning_moves(self, state, side):
+        """Return all moves that would immediately win for side."""
+        wins = set()
+        for move in self._candidate_cells(state):
+            temp = state.copy()
+            temp[move] = side
+            if self.winner(temp) == side:
+                wins.add(move)
+        return wins
+
+    def _has_immediate_tension(self, state):
+        """Check whether either player has a one-move win available."""
+        return bool(
+            self._winning_moves(state, self.side)
+            or self._winning_moves(state, self.opponent(self.side))
+        )
+
+    def _has_fork_tension(self, state):
+        """Check whether any candidate move creates a strong fork threat."""
+        for move in self.actions(state):
+            if len(self._threat_cells_after_move(state, move, self.side)) >= 2:
+                return True
+            if len(self._threat_cells_after_move(state, move, self.opponent(self.side))) >= 2:
+                return True
+            if self._build_threat_count_after_move(state, move, self.side) >= 2:
+                return True
+            if self._build_threat_count_after_move(state, move, self.opponent(self.side)) >= 2:
+                return True
+        return False
+
+    def _fork_score_after_move(self, state, move, side):
+        """
+        Score a true fork move.
+
+        Here "fork" means the move creates at least two immediate winning
+        cells for the next turn. A single threat is useful, but it is usually
+        blockable, so it should not trigger this shortcut.
+        """
+        threats = self._threat_cells_after_move(state, move, side)
+        builds = self._build_threat_count_after_move(state, move, side)
+
+        if len(threats) >= 2:
+            return 2000000 + 200000 * len(threats) + 50000 * builds
+        return 0
+
+    def _best_fork_move(self, state, side):
+        """
+        Return a true double-threat move if one exists.
+
+        This is an aggressive shortcut used after immediate wins and blocks.
+        It only accepts moves that create multiple next-turn winning cells.
+        """
+        best_move = None
+        best_score = 0
+
+        for move in self.actions(state, side):
+            score = self._fork_score_after_move(state, move, side)
+            if score > best_score:
+                best_score = score
+                best_move = move
+
+        return best_move
+
+    def _is_forcing_candidate(self, state, move, side):
+        """
+        Check whether a move is tactical enough for threat-space search.
+
+        Threat search should not scan ordinary positional moves. It is meant
+        for moves that create a direct threat, build several strong threats, or
+        block a direct opponent win while keeping the attack alive.
+        """
+        opponent = self.opponent(side)
+        threats = self._threat_cells_after_move(state, move, side)
+        builds = self._build_threat_count_after_move(state, move, side)
+
+        if threats or builds >= 2:
+            return True
+
+        if move in self._winning_moves(state, opponent):
+            return True
+
+        for dr, dc in self.directions:
+            length, open_ends = self._line_potential(state, move, side, dr, dc)
+            if length >= self.m - 2 and open_ends > 0:
+                return True
+
+        return False
+
+    def _threat_move_score(self, state, move, side):
+        """
+        Score forcing moves for threat-space search.
+
+        This is intentionally attack-heavy. It is only used inside the
+        dedicated threat search, not as the normal static evaluation.
+        """
+        opponent = self.opponent(side)
+        threats = self._threat_cells_after_move(state, move, side)
+        builds = self._build_threat_count_after_move(state, move, side)
+        blocks = self._threat_cells_after_move(state, move, opponent)
+        score = 0
+
+        if threats:
+            score += 400000 * len(threats)
+        if len(threats) >= 2:
+            score += 1600000
+        if builds:
+            score += 120000 * builds
+        if len(blocks) >= 2:
+            score += 500000
+
+        for dr, dc in self.directions:
+            length, open_ends = self._line_potential(state, move, side, dr, dc)
+            score += 300 * (length ** 3) + 200 * open_ends
+
+        return score
+
+    def _forcing_candidates(self, state, side):
+        """
+        Candidate moves for threat-space search.
+
+        We only keep moves that create immediate threats, create several build
+        threats, or are otherwise among the strongest attacking moves.
+        """
+        candidates = []
+        for move in self.actions(state, side):
+            if not self._is_forcing_candidate(state, move, side):
+                continue
+            score = self._threat_move_score(state, move, side)
+            if score > 0:
+                candidates.append((score, move))
+
+        candidates.sort(reverse=True)
+        return [move for _, move in candidates[: self.threat_search_width]]
+
+    def _attack_move_forces_win(self, state, move, side, depth):
+        """
+        Test one attacking move in threat-space search.
+
+        After the attack move, it is the defender's turn. The move is accepted
+        only if it wins immediately, creates an unblockable double threat, or
+        creates a single threat whose forced block still leaves a forced win.
+        """
+        if move in state:
+            return False
+
+        opponent = self.opponent(side)
+        next_state = state.copy()
+        next_state[move] = side
+
+        if self.winner(next_state) == side:
+            return True
+
+        # If the defender can win immediately, this is not a forcing attack.
+        if self._winning_moves(next_state, opponent):
+            return False
+
+        threats = self._winning_moves(next_state, side)
+        if len(threats) >= 2:
+            return True
+        if len(threats) != 1 or depth <= 0:
+            return False
+
+        block = next(iter(threats))
+        response = next_state.copy()
+        response[block] = opponent
+
+        return self._can_force_win(response, side, depth - 1)
+
+    def _can_force_win(self, state, side, depth):
+        """
+        Bounded threat-space search.
+
+        This function is called when it is the attacker's turn. A line is only
+        accepted when every forced defensive reply still leaves the attacker a
+        forced continuation. Single blockable threats are not counted as wins.
+        """
+        self._check_time()
+        if "threat_nodes" in self.last_search_info:
+            self.last_search_info["threat_nodes"] += 1
+
+        winner = self.winner(state)
+        if winner == side:
+            return True
+        if winner == self.opponent(side) or self.board_full(state):
+            return False
+
+        key = (self._state_key(state), side, depth)
+        cached = self.threat_table.get(key)
+        if cached is not None:
+            if "threat_cache_hits" in self.last_search_info:
+                self.last_search_info["threat_cache_hits"] += 1
+            return cached
+
+        if self._winning_moves(state, side):
+            self.threat_table[key] = True
+            return True
+
+        if depth <= 0:
+            self.threat_table[key] = False
+            return False
+
+        opponent = self.opponent(side)
+        opponent_wins = self._winning_moves(state, opponent)
+        moves = self._forcing_candidates(state, side)
+
+        if len(opponent_wins) > 1:
+            self.threat_table[key] = False
+            return False
+        if len(opponent_wins) == 1:
+            # The attacker must block first; otherwise the line is not sound.
+            forced_block = next(iter(opponent_wins))
+            moves = [forced_block] if forced_block not in state else []
+
+        for move in moves:
+            if self._attack_move_forces_win(state, move, side, depth):
+                self.threat_table[key] = True
+                return True
+
+        self.threat_table[key] = False
+        return False
+
+    def _forcing_attack_move(self, state, side, depth=None):
+        """Return an attacking move that starts a bounded forced-win line."""
+        if depth is None:
+            depth = self.threat_search_depth
+
+        for move in self._forcing_candidates(state, side):
+            if self._attack_move_forces_win(state, move, side, depth):
+                return move
+
+        return None
+
     def _move_priority(self, state, move, side):
         """
         Score one candidate move for move ordering.
@@ -420,6 +774,26 @@ class agent:
         temp[move] = opponent
         if self.winner(temp) == opponent:
             score += 10 ** (self.m + 2)
+
+        own_threats = self._threat_cells_after_move(state, move, side)
+        opp_threats = self._threat_cells_after_move(state, move, opponent)
+        own_builds = self._build_threat_count_after_move(state, move, side)
+        opp_builds = self._build_threat_count_after_move(state, move, opponent)
+
+        if len(own_threats) >= 2:
+            score += 1500000
+        elif len(own_threats) == 1:
+            score += 160000
+
+        if len(opp_threats) >= 2:
+            score += 1200000
+        elif len(opp_threats) == 1:
+            score += 130000
+
+        if own_builds >= 2:
+            score += 90000
+        if opp_builds >= 2:
+            score += 70000
 
         for dr, dc in self.directions:
             own_length, own_open = self._line_potential(state, move, side, dr, dc)
@@ -462,18 +836,17 @@ class agent:
             key=lambda move: self._move_priority(state, move, side),
             reverse=True,
         )
-        if len(ordered) > self.max_branching:
-            return ordered[: self.max_branching]
+        branch_limit = self._branch_limit(state)
+        if len(ordered) > branch_limit:
+            return ordered[:branch_limit]
         return ordered
 
     def _immediate_move(self, state, side):
         """Return a direct winning move for the given side, if one exists."""
-        for move in self.actions(state, side):
-            temp = state.copy()
-            temp[move] = side
-            if self.winner(temp) == side:
-                return move
-        return None
+        wins = self._winning_moves(state, side)
+        if not wins:
+            return None
+        return max(wins, key=lambda move: self._move_priority(state, move, side))
 
     def is_win(self, state):
         """Check whether this agent has an immediate winning move."""
@@ -483,7 +856,7 @@ class agent:
         """Check whether the opponent has an immediate winning move to block."""
         return self._immediate_move(state, self.opponent(self.side))
 
-    def _alpha_beta(self, state, depth, alpha, beta, turn_side):
+    def _alpha_beta(self, state, depth, alpha, beta, turn_side, extension_left=0):
         """
         Recursive alpha-beta search.
 
@@ -493,24 +866,38 @@ class agent:
             alpha (float): Best guaranteed lower bound for MAX.
             beta (float): Best guaranteed upper bound for MIN.
             turn_side (int): Side to move at this node.
+            extension_left (int): Extra tactical plies still allowed.
 
         Returns:
             tuple: (score, best_move)
         """
         self._check_time()
         self.last_search_info["nodes"] += 1
-        table_key = (self._state_key(state), turn_side, depth)
+        table_key = (self._state_key(state), turn_side, depth, extension_left)
         cached = self.transposition_table.get(table_key)
         if cached is not None:
             self.last_search_info["tt_hits"] += 1
             return cached
 
         winner = self.winner(state)
-        if winner is not None or depth == 0 or self.board_full(state):
+        if winner is not None or self.board_full(state):
             self.last_search_info["evals"] += 1
             result = (self.eval(state), None)
             self.transposition_table[table_key] = result
             return result
+
+        if depth == 0:
+            if extension_left > 0 and (
+                self._has_immediate_tension(state) or self._has_fork_tension(state)
+            ):
+                depth = 1
+                extension_left -= 1
+                self.last_search_info["extensions"] += 1
+            else:
+                self.last_search_info["evals"] += 1
+                result = (self.eval(state), None)
+                self.transposition_table[table_key] = result
+                return result
 
         moves = self.actions(state, turn_side)
         if not moves:
@@ -532,6 +919,7 @@ class agent:
                     alpha,
                     beta,
                     self.opponent(turn_side),
+                    extension_left,
                 )
                 if child_value > value:
                     value = child_value
@@ -556,6 +944,7 @@ class agent:
                 alpha,
                 beta,
                 self.opponent(turn_side),
+                extension_left,
             )
             if child_value < value:
                 value = child_value
@@ -587,14 +976,23 @@ class agent:
             "evals": 0,
             "cutoffs": 0,
             "tt_hits": 0,
+            "threat_nodes": 0,
+            "threat_cache_hits": 0,
+            "threat_timed_out": False,
+            "extensions": 0,
             "completed_depth": 0,
             "elapsed": 0.0,
             "move": None,
             "score": None,
             "timed_out": False,
             "candidate_count": 0,
+            "shortcut": None,
+            "version": self.version,
         }
         self.transposition_table = {}
+        self.threat_table = {}
+        full_deadline = time.time() + self.time_limit
+        self.deadline = full_deadline
 
         if self.board_full(self.current_state):
             self.last_search_info["elapsed"] = time.time() - start_time
@@ -611,6 +1009,7 @@ class agent:
             self.last_search_info["move"] = win_pos
             self.last_search_info["score"] = self.eval(self.current_state)
             self.last_search_info["elapsed"] = time.time() - start_time
+            self.last_search_info["shortcut"] = "win"
             return win_pos
 
         break_pos = self.is_break(self.current_state)
@@ -618,11 +1017,70 @@ class agent:
             self.last_search_info["move"] = break_pos
             self.last_search_info["score"] = self.eval(self.current_state)
             self.last_search_info["elapsed"] = time.time() - start_time
+            self.last_search_info["shortcut"] = "block"
             return break_pos
+
+        fork_pos = self._best_fork_move(self.current_state, self.side)
+        if fork_pos is not None:
+            self.last_search_info["move"] = fork_pos
+            self.last_search_info["score"] = self.eval(self.current_state)
+            self.last_search_info["elapsed"] = time.time() - start_time
+            self.last_search_info["shortcut"] = "attack_fork"
+            return fork_pos
+
+        threat_budget = min(3.0, max(0.25, self.time_limit * 0.25))
+        self.deadline = min(full_deadline, time.time() + threat_budget)
+        try:
+            forcing_pos = self._forcing_attack_move(self.current_state, self.side)
+        except SearchTimeout:
+            forcing_pos = None
+            self.last_search_info["threat_timed_out"] = True
+        finally:
+            self.deadline = full_deadline
+
+        if forcing_pos is not None:
+            self.last_search_info["move"] = forcing_pos
+            self.last_search_info["score"] = self.eval(self.current_state)
+            self.last_search_info["elapsed"] = time.time() - start_time
+            self.last_search_info["shortcut"] = "threat_space_attack"
+            return forcing_pos
+
+        opponent_fork_pos = self._best_fork_move(
+            self.current_state,
+            self.opponent(self.side),
+        )
+        if opponent_fork_pos is not None and opponent_fork_pos not in self.current_state:
+            self.last_search_info["move"] = opponent_fork_pos
+            self.last_search_info["score"] = self.eval(self.current_state)
+            self.last_search_info["elapsed"] = time.time() - start_time
+            self.last_search_info["shortcut"] = "block_fork"
+            return opponent_fork_pos
+
+        self.deadline = min(full_deadline, time.time() + threat_budget)
+        try:
+            opponent_forcing_pos = self._forcing_attack_move(
+                self.current_state,
+                self.opponent(self.side),
+                depth=max(1, self.threat_search_depth - 1),
+            )
+        except SearchTimeout:
+            opponent_forcing_pos = None
+            self.last_search_info["threat_timed_out"] = True
+        finally:
+            self.deadline = full_deadline
+
+        if (
+            opponent_forcing_pos is not None
+            and opponent_forcing_pos not in self.current_state
+        ):
+            self.last_search_info["move"] = opponent_forcing_pos
+            self.last_search_info["score"] = self.eval(self.current_state)
+            self.last_search_info["elapsed"] = time.time() - start_time
+            self.last_search_info["shortcut"] = "block_threat_space"
+            return opponent_forcing_pos
 
         best_move = moves[0]
         best_value = float("-inf")
-        self.deadline = time.time() + self.time_limit
         depth = 1
 
         try:
@@ -634,6 +1092,7 @@ class agent:
                     float("-inf"),
                     float("inf"),
                     self.side,
+                    self.quiescence_extensions,
                 )
                 if move is not None:
                     best_move = move
